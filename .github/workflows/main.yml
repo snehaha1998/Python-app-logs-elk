@@ -1,3 +1,4 @@
+
 name: Python CI
 
 on:
@@ -33,25 +34,35 @@ jobs:
 
       - name: Send final status to ELK
         if: always()
+        # Map the job status safely to an environment variable here:
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
           python - << 'PYEOF'
-import os, json, urllib.request, datetime
+          import os, json, urllib.request, datetime
 
-payload = {
-    "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
-    "level":       "INFO" if "${{ job.status }}" == "success" else "ERROR",
-    "message":     "CI run ${{ job.status }}",
-    "app":         "my-python-app",
-    "environment": "ci",
-    "conclusion":  "${{ job.status }}",
-    "run_number":  int(os.getenv("GITHUB_RUN_NUMBER", 0)),
-    "branch":      os.getenv("GITHUB_REF_NAME", ""),
-    "actor":       os.getenv("GITHUB_ACTOR", ""),
-    "repository":  os.getenv("GITHUB_REPOSITORY", ""),
-}
-url  = os.getenv("LOGSTASH_URL")
-data = json.dumps(payload).encode()
-req  = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json"})
-urllib.request.urlopen(req, timeout=5)
-print("Log sent to ELK ✓")
-PYEOF
+          # Read the status from the OS environment instead of GitHub templates
+          status = os.getenv("JOB_STATUS", "unknown")
+
+          payload = {
+              "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+              "level":       "INFO" if status == "success" else "ERROR",
+              "message":     f"CI run {status}",
+              "app":         "my-python-app",
+              "environment": "ci",
+              "conclusion":  status,
+              "run_number":  int(os.getenv("GITHUB_RUN_NUMBER", 0)),
+              "branch":      os.getenv("GITHUB_REF_NAME", ""),
+              "actor":       os.getenv("GITHUB_ACTOR", ""),
+              "repository":  os.getenv("GITHUB_REPOSITORY", ""),
+          }
+          
+          url  = os.getenv("LOGSTASH_URL")
+          if url:
+              data = json.dumps(payload).encode()
+              req  = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json"})
+              urllib.request.urlopen(req, timeout=5)
+              print("Log sent to ELK ✓")
+          else:
+              print("LOGSTASH_URL not configured.")
+          PYEOF
